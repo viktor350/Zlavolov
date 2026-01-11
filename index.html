@@ -1,198 +1,199 @@
 <!DOCTYPE html>
 <html lang="sk">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Zľavolov.sk - Všetky akcie na jednom mieste</title>
     <script src="https://cdn.tailwindcss.com"></script>
-
+    
     <!-- Firebase SDK -->
     <script type="module">
-      import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
-      import {
-        getFirestore,
-        collection,
-        addDoc,
-        getDocs,
-        deleteDoc,
-        doc,
-        updateDoc,
-        query,
-        orderBy,
-      } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+        import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js';
+        import { getFirestore, collection, addDoc, getDocs, deleteDoc, doc, updateDoc, query, orderBy, where } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js';
 
-      // Firebase configuration
-      const firebaseConfig = {
-        apiKey: "AIzaSyD0sUoHDL9818MbPD9Cgsg5DPYwndOy-mE",
-        authDomain: "zlavolov.firebaseapp.com",
-        projectId: "zlavolov",
-        storageBucket: "zlavolov.firebasestorage.app",
-        messagingSenderId: "172750905126",
-        appId: "1:172750905126:web:3365e888ded6728408ebe7",
-        measurementId: "G-7RJR9KQTJB"
-      };
+        // Firebase configuration - NOVÝ API KEY!
+        const firebaseConfig = {
+            apiKey: "AIzaSyD0sUoHDL9818MbPD9Cgsg5DPYwndOy-mE",
+            authDomain: "zlavolov.firebaseapp.com",
+            projectId: "zlavolov",
+            storageBucket: "zlavolov.firebasestorage.app",
+            messagingSenderId: "172750905126",
+            appId: "1:172750905126:web:3365e888ded6728408ebe7",
+            measurementId: "G-7RJR9KQTJB"
+        };
 
-      // Initialize Firebase
-      const app = initializeApp(firebaseConfig);
-      const db = getFirestore(app);
+        // Initialize Firebase
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
 
-      // State
-      let deals = [];
-      let isAdmin = false;
-      let editingDealId = null;
+        // State
+        let deals = [];
+        let isAdmin = false;
+        let editingDealId = null;
 
-      const categories = [
-        { id: "all", name: "Všetko" },
-        { id: "maso", name: "Mäso" },
-        { id: "mlieko", name: "Mliečne výrobky" },
-        { id: "ovocie", name: "Ovocie a zelenina" },
-        { id: "kozmetika", name: "Kozmetika" },
-        { id: "pecivo", name: "Pečivo" },
-        { id: "potraviny", name: "Potraviny" },
-        { id: "domacnost", name: "Domácnosť" },
-      ];
+        const categories = [
+            { id: 'all', name: 'Všetko' },
+            { id: 'maso', name: 'Mäso' },
+            { id: 'mlieko', name: 'Mliečne výrobky' },
+            { id: 'ovocie', name: 'Ovocie a zelenina' },
+            { id: 'kozmetika', name: 'Kozmetika' },
+            { id: 'pecivo', name: 'Pečivo' },
+            { id: 'potraviny', name: 'Potraviny' },
+            { id: 'domacnost', name: 'Domácnosť' },
+        ];
 
-      // Load deals from Firebase
-      async function loadDeals() {
-        try {
-          document.getElementById("loading").classList.remove("hidden");
-          const q = query(
-            collection(db, "deals"),
-            orderBy("createdAt", "desc")
-          );
-          const querySnapshot = await getDocs(q);
-          deals = querySnapshot.docs.map((doc) => ({
-            id: doc.id,
-            ...doc.data(),
-          }));
-          renderDeals();
-        } catch (error) {
-          console.error("Error loading deals:", error);
-          alert("Chyba pri načítaní akcií: " + error.message);
-        } finally {
-          document.getElementById("loading").classList.add("hidden");
+        // Auto-import funkcionalita
+        async function autoImportDeals() {
+            try {
+                console.log('🤖 Spúšťam auto-import zo scrapera...');
+                const response = await fetch('/api/scraper');
+                const data = await response.json();
+                
+                if (data.success && data.deals) {
+                    console.log(`📦 Našiel som ${data.deals.length} akcií na import`);
+                    let imported = 0;
+                    let skipped = 0;
+                    
+                    for (const deal of data.deals) {
+                        // Skontrolujeme či akcia už existuje
+                        const q = query(
+                            collection(db, 'deals'), 
+                            where('product', '==', deal.product),
+                            where('store', '==', deal.store)
+                        );
+                        const existingQuery = await getDocs(q);
+                        
+                        if (existingQuery.empty) {
+                            await addDoc(collection(db, 'deals'), deal);
+                            console.log(`✅ Importovaná: ${deal.product}`);
+                            imported++;
+                        } else {
+                            console.log(`⏭️ Už existuje: ${deal.product}`);
+                            skipped++;
+                        }
+                    }
+                    
+                    console.log(`🎉 Import dokončený! Pridané: ${imported}, Preskočené: ${skipped}`);
+                    return imported > 0;
+                }
+            } catch (error) {
+                console.error('❌ Chyba pri auto-importe:', error);
+                return false;
+            }
         }
-      }
 
-      // Add new deal
-      async function addDeal(dealData) {
-        try {
-          const discount = Math.round(
-            ((dealData.originalPrice - dealData.salePrice) /
-              dealData.originalPrice) *
-              100
-          );
-
-          await addDoc(collection(db, "deals"), {
-            ...dealData,
-            discount: discount,
-            createdAt: new Date().toISOString(),
-          });
-
-          alert("Akcia pridaná! ✅");
-          await loadDeals();
-          document.getElementById("addForm").classList.add("hidden");
-          document.getElementById("addDealForm").reset();
-        } catch (error) {
-          console.error("Error adding deal:", error);
-          alert("Chyba pri pridávaní akcie: " + error.message);
+        // Load deals from Firebase
+        async function loadDeals() {
+            try {
+                document.getElementById('loading').classList.remove('hidden');
+                const q = query(collection(db, 'deals'), orderBy('createdAt', 'desc'));
+                const querySnapshot = await getDocs(q);
+                deals = querySnapshot.docs.map(doc => ({
+                    id: doc.id,
+                    ...doc.data()
+                }));
+                console.log(`📊 Načítaných ${deals.length} akcií z Firebase`);
+                renderDeals();
+            } catch (error) {
+                console.error('Error loading deals:', error);
+                alert('Chyba pri načítaní akcií: ' + error.message);
+            } finally {
+                document.getElementById('loading').classList.add('hidden');
+            }
         }
-      }
 
-      // Delete deal
-      async function deleteDeal(dealId) {
-        if (confirm("Naozaj chceš vymazať túto akciu?")) {
-          try {
-            await deleteDoc(doc(db, "deals", dealId));
-            alert("Akcia vymazaná! ✅");
-            await loadDeals();
-          } catch (error) {
-            console.error("Error deleting deal:", error);
-            alert("Chyba pri mazaní akcie: " + error.message);
-          }
+        // Add new deal
+        async function addDeal(dealData) {
+            try {
+                const discount = Math.round(((dealData.originalPrice - dealData.salePrice) / dealData.originalPrice) * 100);
+                
+                await addDoc(collection(db, 'deals'), {
+                    ...dealData,
+                    discount: discount,
+                    createdAt: new Date().toISOString()
+                });
+
+                alert('Akcia pridaná! ✅');
+                await loadDeals();
+                document.getElementById('addForm').classList.add('hidden');
+                document.getElementById('addDealForm').reset();
+            } catch (error) {
+                console.error('Error adding deal:', error);
+                alert('Chyba pri pridávaní akcie: ' + error.message);
+            }
         }
-      }
 
-      // Update deal
-      async function updateDeal(dealId, dealData) {
-        try {
-          const discount = Math.round(
-            ((dealData.originalPrice - dealData.salePrice) /
-              dealData.originalPrice) *
-              100
-          );
-
-          await updateDoc(doc(db, "deals", dealId), {
-            ...dealData,
-            discount: discount,
-          });
-
-          alert("Akcia upravená! ✅");
-          editingDealId = null;
-          await loadDeals();
-        } catch (error) {
-          console.error("Error updating deal:", error);
-          alert("Chyba pri úprave akcie: " + error.message);
+        // Delete deal
+        async function deleteDeal(dealId) {
+            if (confirm('Naozaj chceš vymazať túto akciu?')) {
+                try {
+                    await deleteDoc(doc(db, 'deals', dealId));
+                    alert('Akcia vymazaná! ✅');
+                    await loadDeals();
+                } catch (error) {
+                    console.error('Error deleting deal:', error);
+                    alert('Chyba pri mazaní akcie: ' + error.message);
+                }
+            }
         }
-      }
 
-      // Filter and render deals
-      function renderDeals() {
-        const searchTerm = document
-          .getElementById("searchInput")
-          .value.toLowerCase();
-        const selectedCategory =
-          document.querySelector("[data-category].bg-black")?.dataset
-            .category || "all";
-        const selectedStore =
-          document.querySelector("[data-store].bg-black")?.dataset.store ||
-          "all";
+        // Update deal
+        async function updateDeal(dealId, dealData) {
+            try {
+                const discount = Math.round(((dealData.originalPrice - dealData.salePrice) / dealData.originalPrice) * 100);
+                
+                await updateDoc(doc(db, 'deals', dealId), {
+                    ...dealData,
+                    discount: discount
+                });
 
-        const filtered = deals.filter((deal) => {
-          const categoryMatch =
-            selectedCategory === "all" || deal.category === selectedCategory;
-          const storeMatch =
-            selectedStore === "all" || deal.store === selectedStore;
-          const searchMatch = deal.product.toLowerCase().includes(searchTerm);
-          return categoryMatch && storeMatch && searchMatch;
-        });
+                alert('Akcia upravená! ✅');
+                editingDealId = null;
+                await loadDeals();
+            } catch (error) {
+                console.error('Error updating deal:', error);
+                alert('Chyba pri úprave akcie: ' + error.message);
+            }
+        }
 
-        document.getElementById("dealCount").textContent = filtered.length;
+        // Filter and render deals
+        function renderDeals() {
+            const searchTerm = document.getElementById('searchInput').value.toLowerCase();
+            const selectedCategory = document.querySelector('[data-category].bg-black')?.dataset.category || 'all';
+            const selectedStore = document.querySelector('[data-store].bg-black')?.dataset.store || 'all';
 
-        const container = document.getElementById("dealsContainer");
-        if (filtered.length === 0) {
-          container.innerHTML = `
+            const filtered = deals.filter(deal => {
+                const categoryMatch = selectedCategory === 'all' || deal.category === selectedCategory;
+                const storeMatch = selectedStore === 'all' || deal.store === selectedStore;
+                const searchMatch = deal.product.toLowerCase().includes(searchTerm);
+                return categoryMatch && storeMatch && searchMatch;
+            });
+
+            document.getElementById('dealCount').textContent = filtered.length;
+
+            const container = document.getElementById('dealsContainer');
+            if (filtered.length === 0) {
+                container.innerHTML = `
                     <div class="text-center py-20">
                         <svg class="w-16 h-16 text-gray-300 mx-auto mb-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"></path>
                         </svg>
                         <p class="text-2xl text-gray-500 mb-2">Žiadne akcie nenájdené</p>
-                        <p class="text-lg text-gray-400">${
-                          isAdmin
-                            ? "Pridajte prvú akciu pomocou tlačidla vyššie"
-                            : "Skúste zmeniť filter alebo hľadaný výraz"
-                        }</p>
+                        <p class="text-lg text-gray-400">${isAdmin ? 'Pridajte prvú akciu pomocou tlačidla vyššie' : 'Skúste zmeniť filter alebo hľadaný výraz'}</p>
                     </div>
                 `;
-          return;
-        }
+                return;
+            }
 
-        container.innerHTML = filtered
-          .map(
-            (deal) => `
+            container.innerHTML = filtered.map(deal => `
                 <div class="bg-white border-2 border-gray-200 rounded-2xl p-8 hover:border-black transition-all">
                     <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-6">
                         <div class="flex-1">
                             <div class="flex items-center gap-3 mb-3 flex-wrap">
-                                <span class="bg-gray-900 text-white px-4 py-2 rounded-lg text-sm font-bold">${
-                                  deal.store
-                                }</span>
-                                <span class="bg-red-500 text-white px-4 py-2 rounded-lg text-sm font-bold">-${
-                                  deal.discount
-                                }%</span>
-                                ${
-                                  isAdmin
-                                    ? `
+                                <span class="bg-gray-900 text-white px-4 py-2 rounded-lg text-sm font-bold">${deal.store}</span>
+                                <span class="bg-red-500 text-white px-4 py-2 rounded-lg text-sm font-bold">-${deal.discount}%</span>
+                                ${deal.source === 'auto-scraper' ? '<span class="bg-blue-500 text-white px-4 py-2 rounded-lg text-sm font-bold">🤖 AUTO</span>' : ''}
+                                ${isAdmin ? `
                                     <button onclick="editDeal('${deal.id}')" class="ml-auto p-2 bg-gray-200 rounded-lg hover:bg-gray-300">
                                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path>
@@ -203,407 +204,285 @@
                                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
                                         </svg>
                                     </button>
-                                `
-                                    : ""
-                                }
+                                ` : ''}
                             </div>
-                            <h3 class="text-2xl font-bold text-gray-900 mb-2">${
-                              deal.product
-                            }</h3>
-                            <p class="text-base text-gray-500">Platí do: ${
-                              deal.validUntil
-                            }</p>
+                            <h3 class="text-2xl font-bold text-gray-900 mb-2">${deal.product}</h3>
+                            <p class="text-base text-gray-500">Platí do: ${deal.validUntil}</p>
                         </div>
                         <div class="text-right">
-                            <p class="text-lg text-gray-400 line-through mb-2">${deal.originalPrice.toFixed(
-                              2
-                            )} €</p>
-                            <p class="text-5xl font-bold text-black mb-3">${deal.salePrice.toFixed(
-                              2
-                            )} €</p>
-                            <p class="text-lg text-green-600 font-medium">Ušetríte ${(
-                              deal.originalPrice - deal.salePrice
-                            ).toFixed(2)} €</p>
+                            <p class="text-lg text-gray-400 line-through mb-2">${deal.originalPrice.toFixed(2)} €</p>
+                            <p class="text-5xl font-bold text-black mb-3">${deal.salePrice.toFixed(2)} €</p>
+                            <p class="text-lg text-green-600 font-medium">Ušetríte ${(deal.originalPrice - deal.salePrice).toFixed(2)} €</p>
                         </div>
                     </div>
                 </div>
-            `
-          )
-          .join("");
-      }
+            `).join('');
+        }
 
-      // Toggle admin mode
-      window.toggleAdmin = function () {
-        isAdmin = !isAdmin;
-        document
-          .getElementById("adminPanel")
-          .classList.toggle("hidden", !isAdmin);
-        document.getElementById("adminBtn").textContent = isAdmin
-          ? "👁️ Verejný pohľad"
-          : "⚙️ Admin panel";
-        renderDeals();
-      };
+        // Toggle admin mode
+        window.toggleAdmin = function() {
+            isAdmin = !isAdmin;
+            document.getElementById('adminPanel').classList.toggle('hidden', !isAdmin);
+            document.getElementById('adminBtn').textContent = isAdmin ? '👁️ Verejný pohľad' : '⚙️ Admin panel';
+            renderDeals();
+        };
 
-      // Show add form
-      window.showAddForm = function () {
-        document.getElementById("addForm").classList.toggle("hidden");
-      };
+        // Show add form
+        window.showAddForm = function() {
+            document.getElementById('addForm').classList.toggle('hidden');
+        };
 
-      // Submit add form
-      window.submitAddForm = function (e) {
-        e.preventDefault();
-        const formData = new FormData(e.target);
-        addDeal({
-          store: formData.get("store"),
-          product: formData.get("product"),
-          originalPrice: parseFloat(formData.get("originalPrice")),
-          salePrice: parseFloat(formData.get("salePrice")),
-          category: formData.get("category"),
-          validUntil: formData.get("validUntil"),
+        // Submit add form
+        window.submitAddForm = function(e) {
+            e.preventDefault();
+            const formData = new FormData(e.target);
+            addDeal({
+                store: formData.get('store'),
+                product: formData.get('product'),
+                originalPrice: parseFloat(formData.get('originalPrice')),
+                salePrice: parseFloat(formData.get('salePrice')),
+                category: formData.get('category'),
+                validUntil: formData.get('validUntil')
+            });
+        };
+
+        // Edit deal
+        window.editDeal = function(dealId) {
+            const deal = deals.find(d => d.id === dealId);
+            if (!deal) return;
+
+            const newProduct = prompt('Názov produktu:', deal.product);
+            if (!newProduct) return;
+
+            const newPrice = prompt('Akciová cena:', deal.salePrice);
+            if (!newPrice) return;
+
+            updateDeal(dealId, {
+                ...deal,
+                product: newProduct,
+                salePrice: parseFloat(newPrice)
+            });
+        };
+
+        // Delete deal
+        window.deleteDealById = function(dealId) {
+            deleteDeal(dealId);
+        };
+
+        // Manual trigger import
+        window.manualImport = async function() {
+            document.getElementById('importBtn').disabled = true;
+            document.getElementById('importBtn').textContent = '⏳ Importujem...';
+            
+            const imported = await autoImportDeals();
+            
+            if (imported) {
+                await loadDeals();
+                alert('Import dokončený! Akcie boli pridané. ✅');
+            } else {
+                alert('Žiadne nové akcie na import.');
+            }
+            
+            document.getElementById('importBtn').disabled = false;
+            document.getElementById('importBtn').textContent = '🤖 Importovať akcie';
+        };
+
+        // Filter functions
+        window.filterCategory = function(category) {
+            document.querySelectorAll('[data-category]').forEach(btn => {
+                btn.classList.remove('bg-black', 'text-white');
+                btn.classList.add('bg-gray-100', 'text-gray-700');
+            });
+            event.target.classList.remove('bg-gray-100', 'text-gray-700');
+            event.target.classList.add('bg-black', 'text-white');
+            renderDeals();
+        };
+
+        window.filterStore = function(store) {
+            document.querySelectorAll('[data-store]').forEach(btn => {
+                btn.classList.remove('bg-black', 'text-white');
+                btn.classList.add('bg-gray-100', 'text-gray-700');
+            });
+            event.target.classList.remove('bg-gray-100', 'text-gray-700');
+            event.target.classList.add('bg-black', 'text-white');
+            renderDeals();
+        };
+
+        window.searchDeals = function() {
+            renderDeals();
+        };
+
+        // Initialize
+        window.addEventListener('DOMContentLoaded', async () => {
+            console.log('🚀 Zľavolov.sk sa načítava...');
+            
+            // Načítaj akcie
+            await loadDeals();
+            
+            // Auto-import raz denne
+            const lastImport = localStorage.getItem('lastAutoImport');
+            const today = new Date().toDateString();
+            
+            if (lastImport !== today) {
+                console.log('📅 Prvé načítanie dnes - spúšťam auto-import...');
+                const imported = await autoImportDeals();
+                
+                if (imported) {
+                    localStorage.setItem('lastAutoImport', today);
+                    await loadDeals(); // Reload po importe
+                    console.log('✅ Auto-import dokončený!');
+                }
+            } else {
+                console.log('✓ Auto-import už bol dnes spustený');
+            }
         });
-      };
-
-      // Edit deal
-      window.editDeal = function (dealId) {
-        const deal = deals.find((d) => d.id === dealId);
-        if (!deal) return;
-
-        const newProduct = prompt("Názov produktu:", deal.product);
-        if (!newProduct) return;
-
-        const newPrice = prompt("Akciová cena:", deal.salePrice);
-        if (!newPrice) return;
-
-        updateDeal(dealId, {
-          ...deal,
-          product: newProduct,
-          salePrice: parseFloat(newPrice),
-        });
-      };
-
-      // Delete deal
-      window.deleteDealById = function (dealId) {
-        deleteDeal(dealId);
-      };
-
-      // Filter functions
-      window.filterCategory = function (category) {
-        document.querySelectorAll("[data-category]").forEach((btn) => {
-          btn.classList.remove("bg-black", "text-white");
-          btn.classList.add("bg-gray-100", "text-gray-700");
-        });
-        event.target.classList.remove("bg-gray-100", "text-gray-700");
-        event.target.classList.add("bg-black", "text-white");
-        renderDeals();
-      };
-
-      window.filterStore = function (store) {
-        document.querySelectorAll("[data-store]").forEach((btn) => {
-          btn.classList.remove("bg-black", "text-white");
-          btn.classList.add("bg-gray-100", "text-gray-700");
-        });
-        event.target.classList.remove("bg-gray-100", "text-gray-700");
-        event.target.classList.add("bg-black", "text-white");
-        renderDeals();
-      };
-
-      window.searchDeals = function () {
-        renderDeals();
-      };
-
-      // Initialize
-      window.addEventListener("DOMContentLoaded", () => {
-        loadDeals();
-      });
     </script>
-  </head>
-  <body class="min-h-screen bg-white">
+</head>
+<body class="min-h-screen bg-white">
     <!-- Header -->
     <header class="border-b-2 border-gray-200 bg-white sticky top-0 z-50">
-      <div class="max-w-6xl mx-auto px-6 py-8">
-        <div class="flex justify-between items-center">
-          <div>
-            <h1 class="text-5xl font-bold text-gray-900 text-center">
-              Zľavolov.sk
-            </h1>
-            <p class="text-xl text-gray-600 text-center mt-3">
-              Všetky akcie na jednom mieste
-            </p>
-          </div>
-          <button
-            id="adminBtn"
-            onclick="toggleAdmin()"
-            class="px-6 py-3 bg-black text-white rounded-lg font-medium hover:bg-gray-800"
-          >
-            ⚙️ Admin panel
-          </button>
+        <div class="max-w-6xl mx-auto px-6 py-8">
+            <div class="flex justify-between items-center">
+                <div>
+                    <h1 class="text-5xl font-bold text-gray-900 text-center">Zľavolov.sk</h1>
+                    <p class="text-xl text-gray-600 text-center mt-3">Všetky akcie na jednom mieste</p>
+                </div>
+                <button id="adminBtn" onclick="toggleAdmin()" class="px-6 py-3 bg-black text-white rounded-lg font-medium hover:bg-gray-800">
+                    ⚙️ Admin panel
+                </button>
+            </div>
         </div>
-      </div>
     </header>
 
     <div class="max-w-6xl mx-auto px-6 py-8">
-      <!-- Loading -->
-      <div id="loading" class="text-center py-20 hidden">
-        <p class="text-2xl text-gray-500">Načítavam akcie...</p>
-      </div>
-
-      <!-- Admin Panel -->
-      <div
-        id="adminPanel"
-        class="mb-12 bg-gray-50 border-2 border-gray-200 rounded-2xl p-8 hidden"
-      >
-        <div class="flex justify-between items-center mb-6">
-          <h2 class="text-3xl font-bold text-gray-900">Admin Panel</h2>
-          <button
-            onclick="showAddForm()"
-            class="px-6 py-3 bg-black text-white rounded-lg font-medium hover:bg-gray-800"
-          >
-            ➕ Pridať akciu
-          </button>
+        <!-- Loading -->
+        <div id="loading" class="text-center py-20 hidden">
+            <p class="text-2xl text-gray-500">Načítavam akcie...</p>
         </div>
 
-        <!-- Add Form -->
-        <div
-          id="addForm"
-          class="bg-white p-6 rounded-xl border-2 border-gray-200 mb-6 hidden"
-        >
-          <form id="addDealForm" onsubmit="submitAddForm(event)">
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label class="block text-lg font-medium mb-2">Obchod</label>
-                <select
-                  name="store"
-                  class="w-full px-4 py-3 border-2 border-gray-200 rounded-lg text-lg"
-                  required
-                >
-                  <option>Tesco</option>
-                  <option>Lidl</option>
-                  <option>Kaufland</option>
-                </select>
-              </div>
-
-              <div>
-                <label class="block text-lg font-medium mb-2">Kategória</label>
-                <select
-                  name="category"
-                  class="w-full px-4 py-3 border-2 border-gray-200 rounded-lg text-lg"
-                  required
-                >
-                  <option value="maso">Mäso</option>
-                  <option value="mlieko">Mliečne výrobky</option>
-                  <option value="ovocie">Ovocie a zelenina</option>
-                  <option value="kozmetika">Kozmetika</option>
-                  <option value="pecivo">Pečivo</option>
-                  <option value="potraviny">Potraviny</option>
-                  <option value="domacnost">Domácnosť</option>
-                </select>
-              </div>
-
-              <div class="md:col-span-2">
-                <label class="block text-lg font-medium mb-2">Produkt</label>
-                <input
-                  type="text"
-                  name="product"
-                  class="w-full px-4 py-3 border-2 border-gray-200 rounded-lg text-lg"
-                  placeholder="Napr. Bravčové mäso"
-                  required
-                />
-              </div>
-
-              <div>
-                <label class="block text-lg font-medium mb-2"
-                  >Pôvodná cena (€)</label
-                >
-                <input
-                  type="number"
-                  step="0.01"
-                  name="originalPrice"
-                  class="w-full px-4 py-3 border-2 border-gray-200 rounded-lg text-lg"
-                  placeholder="5.99"
-                  required
-                />
-              </div>
-
-              <div>
-                <label class="block text-lg font-medium mb-2"
-                  >Akciová cena (€)</label
-                >
-                <input
-                  type="number"
-                  step="0.01"
-                  name="salePrice"
-                  class="w-full px-4 py-3 border-2 border-gray-200 rounded-lg text-lg"
-                  placeholder="3.99"
-                  required
-                />
-              </div>
-
-              <div class="md:col-span-2">
-                <label class="block text-lg font-medium mb-2">Platí do</label>
-                <input
-                  type="date"
-                  name="validUntil"
-                  class="w-full px-4 py-3 border-2 border-gray-200 rounded-lg text-lg"
-                  required
-                />
-              </div>
+        <!-- Admin Panel -->
+        <div id="adminPanel" class="mb-12 bg-gray-50 border-2 border-gray-200 rounded-2xl p-8 hidden">
+            <div class="flex justify-between items-center mb-6">
+                <h2 class="text-3xl font-bold text-gray-900">Admin Panel</h2>
+                <div class="flex gap-3">
+                    <button id="importBtn" onclick="manualImport()" class="px-6 py-3 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700">
+                        🤖 Importovať akcie
+                    </button>
+                    <button onclick="showAddForm()" class="px-6 py-3 bg-black text-white rounded-lg font-medium hover:bg-gray-800">
+                        ➕ Pridať akciu
+                    </button>
+                </div>
             </div>
 
-            <button
-              type="submit"
-              class="mt-6 w-full px-6 py-4 bg-black text-white rounded-lg text-lg font-medium hover:bg-gray-800"
-            >
-              Pridať akciu
-            </button>
-          </form>
+            <!-- Add Form -->
+            <div id="addForm" class="bg-white p-6 rounded-xl border-2 border-gray-200 mb-6 hidden">
+                <form id="addDealForm" onsubmit="submitAddForm(event)">
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-lg font-medium mb-2">Obchod</label>
+                            <select name="store" class="w-full px-4 py-3 border-2 border-gray-200 rounded-lg text-lg" required>
+                                <option>Tesco</option>
+                                <option>Lidl</option>
+                                <option>Kaufland</option>
+                            </select>
+                        </div>
+
+                        <div>
+                            <label class="block text-lg font-medium mb-2">Kategória</label>
+                            <select name="category" class="w-full px-4 py-3 border-2 border-gray-200 rounded-lg text-lg" required>
+                                <option value="maso">Mäso</option>
+                                <option value="mlieko">Mliečne výrobky</option>
+                                <option value="ovocie">Ovocie a zelenina</option>
+                                <option value="kozmetika">Kozmetika</option>
+                                <option value="pecivo">Pečivo</option>
+                                <option value="potraviny">Potraviny</option>
+                                <option value="domacnost">Domácnosť</option>
+                            </select>
+                        </div>
+
+                        <div class="md:col-span-2">
+                            <label class="block text-lg font-medium mb-2">Produkt</label>
+                            <input type="text" name="product" class="w-full px-4 py-3 border-2 border-gray-200 rounded-lg text-lg" placeholder="Napr. Bravčové mäso" required>
+                        </div>
+
+                        <div>
+                            <label class="block text-lg font-medium mb-2">Pôvodná cena (€)</label>
+                            <input type="number" step="0.01" name="originalPrice" class="w-full px-4 py-3 border-2 border-gray-200 rounded-lg text-lg" placeholder="5.99" required>
+                        </div>
+
+                        <div>
+                            <label class="block text-lg font-medium mb-2">Akciová cena (€)</label>
+                            <input type="number" step="0.01" name="salePrice" class="w-full px-4 py-3 border-2 border-gray-200 rounded-lg text-lg" placeholder="3.99" required>
+                        </div>
+
+                        <div class="md:col-span-2">
+                            <label class="block text-lg font-medium mb-2">Platí do</label>
+                            <input type="date" name="validUntil" class="w-full px-4 py-3 border-2 border-gray-200 rounded-lg text-lg" required>
+                        </div>
+                    </div>
+
+                    <button type="submit" class="mt-6 w-full px-6 py-4 bg-black text-white rounded-lg text-lg font-medium hover:bg-gray-800">
+                        Pridať akciu
+                    </button>
+                </form>
+            </div>
         </div>
-      </div>
 
-      <!-- Search -->
-      <div class="mb-12">
-        <div class="relative">
-          <svg
-            class="absolute left-6 top-7 text-gray-400 w-7 h-7"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              stroke-width="2"
-              d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-            ></path>
-          </svg>
-          <input
-            id="searchInput"
-            type="text"
-            placeholder="Čo hľadáte?"
-            oninput="searchDeals()"
-            class="w-full pl-16 pr-6 py-6 text-2xl border-2 border-gray-300 rounded-2xl focus:border-black focus:outline-none"
-          />
+        <!-- Search -->
+        <div class="mb-12">
+            <div class="relative">
+                <svg class="absolute left-6 top-7 text-gray-400 w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+                </svg>
+                <input id="searchInput" type="text" placeholder="Čo hľadáte?" oninput="searchDeals()" class="w-full pl-16 pr-6 py-6 text-2xl border-2 border-gray-300 rounded-2xl focus:border-black focus:outline-none">
+            </div>
         </div>
-      </div>
 
-      <!-- Categories -->
-      <div class="mb-12">
-        <h2 class="text-2xl font-bold text-gray-900 mb-6">Kategórie</h2>
-        <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <button
-            data-category="all"
-            onclick="filterCategory('all')"
-            class="px-6 py-5 text-lg font-medium rounded-xl bg-black text-white"
-          >
-            Všetko
-          </button>
-          <button
-            data-category="maso"
-            onclick="filterCategory('maso')"
-            class="px-6 py-5 text-lg font-medium rounded-xl bg-gray-100 text-gray-700 hover:bg-gray-200"
-          >
-            Mäso
-          </button>
-          <button
-            data-category="mlieko"
-            onclick="filterCategory('mlieko')"
-            class="px-6 py-5 text-lg font-medium rounded-xl bg-gray-100 text-gray-700 hover:bg-gray-200"
-          >
-            Mliečne výrobky
-          </button>
-          <button
-            data-category="ovocie"
-            onclick="filterCategory('ovocie')"
-            class="px-6 py-5 text-lg font-medium rounded-xl bg-gray-100 text-gray-700 hover:bg-gray-200"
-          >
-            Ovocie a zelenina
-          </button>
-          <button
-            data-category="kozmetika"
-            onclick="filterCategory('kozmetika')"
-            class="px-6 py-5 text-lg font-medium rounded-xl bg-gray-100 text-gray-700 hover:bg-gray-200"
-          >
-            Kozmetika
-          </button>
-          <button
-            data-category="pecivo"
-            onclick="filterCategory('pecivo')"
-            class="px-6 py-5 text-lg font-medium rounded-xl bg-gray-100 text-gray-700 hover:bg-gray-200"
-          >
-            Pečivo
-          </button>
-          <button
-            data-category="potraviny"
-            onclick="filterCategory('potraviny')"
-            class="px-6 py-5 text-lg font-medium rounded-xl bg-gray-100 text-gray-700 hover:bg-gray-200"
-          >
-            Potraviny
-          </button>
-          <button
-            data-category="domacnost"
-            onclick="filterCategory('domacnost')"
-            class="px-6 py-5 text-lg font-medium rounded-xl bg-gray-100 text-gray-700 hover:bg-gray-200"
-          >
-            Domácnosť
-          </button>
+        <!-- Categories -->
+        <div class="mb-12">
+            <h2 class="text-2xl font-bold text-gray-900 mb-6">Kategórie</h2>
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <button data-category="all" onclick="filterCategory('all')" class="px-6 py-5 text-lg font-medium rounded-xl bg-black text-white">Všetko</button>
+                <button data-category="maso" onclick="filterCategory('maso')" class="px-6 py-5 text-lg font-medium rounded-xl bg-gray-100 text-gray-700 hover:bg-gray-200">Mäso</button>
+                <button data-category="mlieko" onclick="filterCategory('mlieko')" class="px-6 py-5 text-lg font-medium rounded-xl bg-gray-100 text-gray-700 hover:bg-gray-200">Mliečne výrobky</button>
+                <button data-category="ovocie" onclick="filterCategory('ovocie')" class="px-6 py-5 text-lg font-medium rounded-xl bg-gray-100 text-gray-700 hover:bg-gray-200">Ovocie a zelenina</button>
+                <button data-category="kozmetika" onclick="filterCategory('kozmetika')" class="px-6 py-5 text-lg font-medium rounded-xl bg-gray-100 text-gray-700 hover:bg-gray-200">Kozmetika</button>
+                <button data-category="pecivo" onclick="filterCategory('pecivo')" class="px-6 py-5 text-lg font-medium rounded-xl bg-gray-100 text-gray-700 hover:bg-gray-200">Pečivo</button>
+                <button data-category="potraviny" onclick="filterCategory('potraviny')" class="px-6 py-5 text-lg font-medium rounded-xl bg-gray-100 text-gray-700 hover:bg-gray-200">Potraviny</button>
+                <button data-category="domacnost" onclick="filterCategory('domacnost')" class="px-6 py-5 text-lg font-medium rounded-xl bg-gray-100 text-gray-700 hover:bg-gray-200">Domácnosť</button>
+            </div>
         </div>
-      </div>
 
-      <!-- Stores -->
-      <div class="mb-12">
-        <h2 class="text-2xl font-bold text-gray-900 mb-6">Obchod</h2>
-        <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <button
-            data-store="all"
-            onclick="filterStore('all')"
-            class="px-6 py-5 text-lg font-medium rounded-xl bg-black text-white"
-          >
-            Všetky obchody
-          </button>
-          <button
-            data-store="Tesco"
-            onclick="filterStore('Tesco')"
-            class="px-6 py-5 text-lg font-medium rounded-xl bg-gray-100 text-gray-700 hover:bg-gray-200"
-          >
-            Tesco
-          </button>
-          <button
-            data-store="Lidl"
-            onclick="filterStore('Lidl')"
-            class="px-6 py-5 text-lg font-medium rounded-xl bg-gray-100 text-gray-700 hover:bg-gray-200"
-          >
-            Lidl
-          </button>
-          <button
-            data-store="Kaufland"
-            onclick="filterStore('Kaufland')"
-            class="px-6 py-5 text-lg font-medium rounded-xl bg-gray-100 text-gray-700 hover:bg-gray-200"
-          >
-            Kaufland
-          </button>
+        <!-- Stores -->
+        <div class="mb-12">
+            <h2 class="text-2xl font-bold text-gray-900 mb-6">Obchod</h2>
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <button data-store="all" onclick="filterStore('all')" class="px-6 py-5 text-lg font-medium rounded-xl bg-black text-white">Všetky obchody</button>
+                <button data-store="Tesco" onclick="filterStore('Tesco')" class="px-6 py-5 text-lg font-medium rounded-xl bg-gray-100 text-gray-700 hover:bg-gray-200">Tesco</button>
+                <button data-store="Lidl" onclick="filterStore('Lidl')" class="px-6 py-5 text-lg font-medium rounded-xl bg-gray-100 text-gray-700 hover:bg-gray-200">Lidl</button>
+                <button data-store="Kaufland" onclick="filterStore('Kaufland')" class="px-6 py-5 text-lg font-medium rounded-xl bg-gray-100 text-gray-700 hover:bg-gray-200">Kaufland</button>
+            </div>
         </div>
-      </div>
 
-      <!-- Results count -->
-      <div class="mb-8 pb-6 border-b border-gray-200">
-        <p class="text-xl text-gray-600">
-          Počet akcií:
-          <span id="dealCount" class="font-bold text-black">0</span>
-        </p>
-      </div>
+        <!-- Results count -->
+        <div class="mb-8 pb-6 border-b border-gray-200">
+            <p class="text-xl text-gray-600">
+                Počet akcií: <span id="dealCount" class="font-bold text-black">0</span>
+            </p>
+        </div>
 
-      <!-- Deals -->
-      <div id="dealsContainer" class="space-y-6">
-        <!-- Deals will be rendered here -->
-      </div>
+        <!-- Deals -->
+        <div id="dealsContainer" class="space-y-6">
+            <!-- Deals will be rendered here -->
+        </div>
     </div>
 
     <!-- Footer -->
     <footer class="border-t-2 border-gray-200 mt-20 py-10">
-      <div class="max-w-6xl mx-auto px-6 text-center">
-        <p class="text-lg text-gray-600">Vyrobené na Slovensku</p>
-        <p class="text-base text-gray-400 mt-2">🔥 Prepojené s Firebase</p>
-      </div>
+        <div class="max-w-6xl mx-auto px-6 text-center">
+            <p class="text-lg text-gray-600">Vyrobené na Slovensku</p>
+            <p class="text-base text-gray-400 mt-2">🔥 Prepojené s Firebase | 🤖 Auto-import každý deň</p>
+        </div>
     </footer>
-  </body>
+</body>
 </html>
-
