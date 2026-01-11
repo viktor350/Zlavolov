@@ -1,4 +1,3 @@
-// Import Firebase (cez fetch API v serverless funkcii)
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   
@@ -7,17 +6,7 @@ export default async function handler(req, res) {
   }
 
   try {
-    // Firebase config
-    const firebaseConfig = {
-      apiKey: "AIzaSyD0sUoHDL9818MbPD9Cgsg5DPYwndOy-mE",
-      authDomain: "zlavolov.firebaseapp.com",
-      projectId: "zlavolov",
-      storageBucket: "zlavolov.firebasestorage.app",
-      messagingSenderId: "172750905126",
-      appId: "1:172750905126:web:3365e888ded6728408ebe7"
-    };
-
-    // DEMO DATA - simulujeme scraping
+    // Vygenerujeme demo akcie
     const currentDate = new Date();
     const validUntil = new Date(currentDate);
     validUntil.setDate(validUntil.getDate() + 7);
@@ -55,61 +44,32 @@ export default async function handler(req, res) {
         discount: 31,
         createdAt: new Date().toISOString(),
         source: 'auto-scraper'
-      },
-      {
-        store: 'Tesco',
-        product: 'Banány 1kg (AUTO)',
-        originalPrice: 1.79,
-        salePrice: 0.99,
-        category: 'ovocie',
-        validUntil: validUntil.toISOString().split('T')[0],
-        discount: 45,
-        createdAt: new Date().toISOString(),
-        source: 'auto-scraper'
-      },
-      {
-        store: 'Lidl',
-        product: 'Šampón Pantene (AUTO)',
-        originalPrice: 4.99,
-        salePrice: 2.99,
-        category: 'kozmetika',
-        validUntil: validUntil.toISOString().split('T')[0],
-        discount: 40,
-        createdAt: new Date().toISOString(),
-        source: 'auto-scraper'
       }
     ];
 
-    // Uložíme do Firebase pomocou REST API
-    const savePromises = demoDeals.map(async (deal) => {
-      const response = await fetch(
-        `https://firestore.googleapis.com/v1/projects/${firebaseConfig.projectId}/databases/(default)/documents/deals`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            fields: {
-              store: { stringValue: deal.store },
-              product: { stringValue: deal.product },
-              originalPrice: { doubleValue: deal.originalPrice },
-              salePrice: { doubleValue: deal.salePrice },
-              category: { stringValue: deal.category },
-              validUntil: { stringValue: deal.validUntil },
-              discount: { integerValue: deal.discount },
-              createdAt: { stringValue: deal.createdAt },
-              source: { stringValue: deal.source }
-            }
-          })
-        }
-      );
-      return response.json();
-    });
+    // Uložíme pomocou Firebase Client SDK
+    // Použijeme dynamický import
+    const { initializeApp } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js');
+    const { getFirestore, collection, addDoc } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
 
+    const firebaseConfig = {
+      apiKey: "AIzaSyD0sUoHDL9818MbPD9Cgsg5DPYwndOy-mE",
+      authDomain: "zlavolov.firebaseapp.com",
+      projectId: "zlavolov",
+      storageBucket: "zlavolov.firebasestorage.app",
+      messagingSenderId: "172750905126",
+      appId: "1:172750905126:web:3365e888ded6728408ebe7"
+    };
+
+    const app = initializeApp(firebaseConfig, `scraper-${Date.now()}`);
+    const db = getFirestore(app);
+
+    // Uložíme každú akciu
+    const savePromises = demoDeals.map(deal => 
+      addDoc(collection(db, 'deals'), deal)
+    );
+    
     await Promise.all(savePromises);
-
-    console.log(`✅ Uložil som ${demoDeals.length} akcií do Firebase`);
 
     return res.status(200).json({
       success: true,
@@ -119,10 +79,11 @@ export default async function handler(req, res) {
     });
 
   } catch (error) {
-    console.error('❌ Chyba v scraperi:', error);
+    console.error('❌ Chyba:', error);
     return res.status(500).json({
       success: false,
-      error: error.message
+      error: error.message,
+      stack: error.stack
     });
   }
 }
