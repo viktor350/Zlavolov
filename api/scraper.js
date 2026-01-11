@@ -6,7 +6,6 @@ export default async function handler(req, res) {
   }
 
   try {
-    // Vygenerujeme demo akcie
     const currentDate = new Date();
     const validUntil = new Date(currentDate);
     validUntil.setDate(validUntil.getDate() + 7);
@@ -44,46 +43,40 @@ export default async function handler(req, res) {
         discount: 31,
         createdAt: new Date().toISOString(),
         source: 'auto-scraper'
+      },
+      {
+        store: 'Tesco',
+        product: 'Banány 1kg (AUTO)',
+        originalPrice: 1.79,
+        salePrice: 0.99,
+        category: 'ovocie',
+        validUntil: validUntil.toISOString().split('T')[0],
+        discount: 45,
+        createdAt: new Date().toISOString(),
+        source: 'auto-scraper'
+      },
+      {
+        store: 'Lidl',
+        product: 'Šampón Pantene (AUTO)',
+        originalPrice: 4.99,
+        salePrice: 2.99,
+        category: 'kozmetika',
+        validUntil: validUntil.toISOString().split('T')[0],
+        discount: 40,
+        createdAt: new Date().toISOString(),
+        source: 'auto-scraper'
       }
     ];
 
-    // Uložíme pomocou Firebase Client SDK
-    // Použijeme dynamický import
-    const { initializeApp } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js');
-    const { getFirestore, collection, addDoc } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
-
-    const firebaseConfig = {
-      apiKey: "AIzaSyD0sUoHDL9818MbPD9Cgsg5DPYwndOy-mE",
-      authDomain: "zlavolov.firebaseapp.com",
-      projectId: "zlavolov",
-      storageBucket: "zlavolov.firebasestorage.app",
-      messagingSenderId: "172750905126",
-      appId: "1:172750905126:web:3365e888ded6728408ebe7"
-    };
-
-    const app = initializeApp(firebaseConfig, `scraper-${Date.now()}`);
-    const db = getFirestore(app);
-
-    // Uložíme každú akciu
-    const savePromises = demoDeals.map(deal => 
-      addDoc(collection(db, 'deals'), deal)
-    );
-    
-    await Promise.all(savePromises);
-
     return res.status(200).json({
       success: true,
-      message: `Scraper dokončený! Pridaných ${demoDeals.length} akcií`,
-      deals: demoDeals.length,
-      timestamp: new Date().toISOString()
+      deals: demoDeals
     });
 
   } catch (error) {
-    console.error('❌ Chyba:', error);
     return res.status(500).json({
       success: false,
-      error: error.message,
-      stack: error.stack
+      error: error.message
     });
   }
 }
